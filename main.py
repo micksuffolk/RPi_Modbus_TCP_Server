@@ -11,15 +11,17 @@ from random import uniform
 
 
 
-# Event wait alternative to sleep() for threading purposes...
-event_wait = threading.Event()
-
-
-
 ######################################################################################################################
 # Initialize Values (This block will test the excepted error to occur)...
 try:
     print("Code Initializing...")
+
+    # Event wait alternative to sleep() for threading purposes...
+    event_wait = threading.Event()
+
+    # Initialize some variables...
+    Test_Counter = int()
+    Program_Status_Code = int(1)
 
     # Create Modbus data tables...
     data_store_hr = defaultdict(int)  # Holding Register Table (4xxxxx)
@@ -29,8 +31,16 @@ try:
     conf.SIGNED_VALUES = True
 
     # Setup server IP address & port number where clients can access the data...
+
+    # Ethernet IP...
+#    ip_address = netifaces.ifaddresses('eth0')[netifaces.AF_INET][0]['addr']
+#    print('IP Address of eth0 =', ip_address)
+
+    # Wireless IP...
     ip_address = netifaces.ifaddresses('wlan0')[netifaces.AF_INET][0]['addr']
     print('IP Address of wlan0 =', ip_address)
+
+    # Use one of the discovered IP addresses...
     TCPServer.allow_reuse_address = True
     app = get_server(TCPServer, (ip_address, 7777), RequestHandler)
 
@@ -69,7 +79,10 @@ else:
         #############################################################
         ####### Run multiple threads (functions / scripts)... #######
         #############################################################
-        Thread(target = LED_Function(17, event_wait)).start()
+        if (not (Thread(target = LED_Function).is_alive())):
+            Test_Counter += 1
+            print(Test_Counter)
+            Thread(target = LED_Function(17, event_wait, Program_Status_Code)).start()
 
 
 
@@ -123,13 +136,9 @@ finally:
 
     print('app.shutdown...')
     app.shutdown()
-#    Thread(target=app.shutdown).start()
-    event_wait.wait(2)
 
     print('app.server_close...')
     app.server_close()
-#    Thread(target=app.server_close).start()
-    event_wait.wait(2)
 
     print('Code Stopped...')
     exit()
