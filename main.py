@@ -13,14 +13,14 @@ from gpiozero import LED
 
 ######################################################################################################################
 # Initialize some variables...
-Program_Counter = int(0)
-Program_Status_Code = int(1)
-Modbus_Heartbeat_Counter = int(0)
-Modbus_Heartbeat_Counter_Limit = int(200)
-Modbus_Comms_Timeout = bool(False)
-Scan_Pulse = bool(False)
-Status_LED_Function_run = bool(False)
-event = Event()
+Program_Counter = int(0) # Counts up to 65535 and returns to zero, always incrementing
+Program_Status_Code = int(1) # Program status, for diagnostics mainly
+Modbus_Heartbeat_Counter = int(0) # Counter which resets to zero when heartbeat received over Modbus link
+Modbus_Heartbeat_Counter_Limit = int(200) # Limit for determining a Modbus communications timeout
+Modbus_Comms_Timeout = bool(False) # Modbus communications timeout
+Scan_Pulse = bool(False) # pulse which alternates every scan cycle, for general programming use
+Status_LED_Function_run = bool(False) # The status LED flashing function is running
+event = Event() # Generate a variable for the event.wait() function, alternative to sleep() function
 
 
 
@@ -32,23 +32,26 @@ data_store_ir = defaultdict(int)  # Input Register Table (3xxxxx)
 # Enable signed integers (default is False)...
 conf.SIGNED_VALUES = True
 
-# Setup server IP address & port number where clients can access the data...
-# Ethernet IP...
+# Setup server (Modbus Slave) IP address & port number where clients (Modbus Master) can access the data...
+# Ethernet IP... (Activate as necessary)
 #ip_address = netifaces.ifaddresses('eth0')[netifaces.AF_INET][0]['addr']
 #print('IP Address of eth0 =', ip_address)
 
-# Wireless IP...
+# Wireless IP... (Activate as necessary)
 ip_address = netifaces.ifaddresses('wlan0')[netifaces.AF_INET][0]['addr']
 print('IP Address of wlan0 =', ip_address)
 
-# Use one of the discovered IP addresses...
+# Use one of the discovered IP addresses above for the Modbus Server...
+# (Note, to use port 502, or any port number below 1024, the python script must be run with high
+# privilege level, i.e. run the script with a 'sudo' command, port numbers above 1024 don't need this.)
 TCPServer.allow_reuse_address = True
 app = get_server(TCPServer, (ip_address, 7777), RequestHandler)
+#app = get_server(TCPServer, (ip_address, 502), RequestHandler) # Needs high privilege level for port 502
 
 
 
 ######################################################################################################################
-# Holding Register Data Mapping (4xxxxx)...
+# Read the Holding Register Data Store (4xxxxx)...
 @app.route(slave_ids=[1], function_codes=[3], addresses=list(range(0, 99999)))
 def read_data_store(slave_id, function_code, address):
     """" Return value of address. """
@@ -57,7 +60,7 @@ def read_data_store(slave_id, function_code, address):
 
 
 ######################################################################################################################
-# Input Register Data Mapping (3xxxxx)...
+# Read the Input Register Data Store (3xxxxx)...
 @app.route(slave_ids=[1], function_codes=[4], addresses=list(range(0, 99999)))
 def read_data_store(slave_id, function_code, address):
     """" Return value of address. """
@@ -66,7 +69,7 @@ def read_data_store(slave_id, function_code, address):
 
 
 ######################################################################################################################
-# Holding register write (single or multiple register write)...
+# Write to the Holding register data store (single or multiple register write)...
 @app.route(slave_ids=[1], function_codes=[6, 16], addresses=list(range(0, 99999)))
 def write_data_store(slave_id, function_code, address, value):
     """" Set value for address. """
@@ -75,9 +78,10 @@ def write_data_store(slave_id, function_code, address, value):
 
 
 ######################################################################################################################
+# A function to flash a status LED the required number of pulses to indicate realtime program status...
 def Program_Status_LED(Prg_Status_Code):
 
-    # Link LED Output to GPIO pin number...
+    # Link LED Output to GPIO pin number 17...
     led = LED(17)
 
     # Pause before pulsing status LED...
@@ -88,20 +92,22 @@ def Program_Status_LED(Prg_Status_Code):
 
         led.on()
         event.wait(0.4)
-        print("LED On", Prg_Status_Code)
+        #print("LED On", Prg_Status_Code)
 
         led.off()
         event.wait(0.4)
-        print("LED Off", Prg_Status_Code)
+        #print("LED Off", Prg_Status_Code)
 
 
 
+# Create a process so the LED function can run in parallel with other tasks (multiprocessing)...
 Process_Program_Status_LED = Process(target=Program_Status_LED, args=(Program_Status_Code,))
 
 
 
 ######################################################################################################################
-# Initialize Values (This block will test the excepted error to occur)...
+# Initialize/Startup (This block will test the excepted error to occur)...
+# Nothing of note to go here yet, variables are initialised at the top of the code instead...
 try:
     print("Code Initializing...")
 
@@ -143,6 +149,7 @@ else:
         ##############################################
         ####### Status LED for Program Code... #######
         ##############################################
+        # Start the Status LED flashing function...
         if (not Process_Program_Status_LED.is_alive()) and (not Status_LED_Function_run):
             Process_Program_Status_LED.start()
             Status_LED_Function_run = True
@@ -158,7 +165,8 @@ else:
         #########################################################
         ####### Heartbeat over Modbus (Comms Watchdog...) #######
         #########################################################
-        # Heartbeat register written to 1 by master, reset to 0 by slave...
+        # Heartbeat register (400000) written to 1 by master, reset to 0 by slave...
+        # With every 'pulse' to 1, the communications link must be alive, reset the heartbeat counter...
         if (data_store_hr[0] == 1):
             Modbus_Heartbeat_Counter = 0
             data_store_hr[0] = 0
@@ -211,14 +219,14 @@ else:
         data_store_hr[4] = int(datetimenow.year)
         data_store_hr[5] = int(datetimenow.month)
         data_store_hr[6] = int(datetimenow.day)
-        data_store_hr[7] = int(uniform(-32768, 32767))
+        data_store_hr[7] = int(uniform(-32768, 32767)) # random number generator
 
 
 
         #########################################################
         ####### Modbus Input Register Mapping (3xxxxx)... #######
         #########################################################
-        data_store_ir[0] = int(uniform(0, 10))
+        data_store_ir[0] = int(uniform(0, 10)) # random number generator
 
 
 
